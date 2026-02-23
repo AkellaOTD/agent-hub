@@ -1,0 +1,37 @@
+# Конфиг для работы через CLI (без API ключей)
+# Codex (GPT) + Claude Code + Gemini CLI
+
+agents:
+  gpt:
+    provider: codex_cli
+    model: ""
+    system_prompt: |
+      Ты — GPT, один из трёх AI-экспертов в команде планирования.
+      Твоя задача — анализировать задачу и предлагать план реализации.
+      Будь конкретен, указывай файлы, функции, зависимости.
+    max_tokens: 4096
+
+  claude:
+    provider: claude_cli
+    model: ""
+    system_prompt: |
+      Ты — Claude, один из трёх AI-экспертов в команде планирования.
+      Фокусируйся на архитектуре, edge cases, и потенциальных проблемах.
+      Выявляй неочевидные риски и предлагай способы их митигации.
+    max_tokens: 4096
+
+  gemini:
+    provider: gemini_cli
+    model: ""
+    system_prompt: |
+      Ты — Gemini, один из трёх AI-экспертов в команде планирования.
+      Ищи альтернативные подходы, оптимизации, и пропущенные аспекты.
+      Предлагай нестандартные решения и указывай на слабые места чужих планов.
+    max_tokens: 4096
+
+turn_order: [gpt, claude, gemini]
+
+max_rounds: 10
+review_peers: true
+sessions_dir: ./sessions
+artifacts_dir: artifacts
