@@ -106,15 +106,31 @@ class Session:
         """Прочитать контекст конкретного агента."""
         return self._read_jsonl(self.dir / "agents" / agent_name / "context.jsonl")
 
+    def _safe_artifact_path(self, filename: str) -> Path:
+        """Возвращает безопасный путь для артефакта, запрещая path traversal."""
+        safe_name = Path(filename).name
+        if not safe_name or safe_name in ('.', '..'):
+            raise ValueError(f"Недопустимое имя артефакта: {filename!r}")
+        if safe_name != filename:
+            raise ValueError(f"Имя артефакта содержит путь: {filename!r} (допускаются только плоские имена)")
+        artifact_path = (self.dir / self.artifacts_subdir / safe_name).resolve()
+        artifacts_root = (self.dir / self.artifacts_subdir).resolve()
+        if not str(artifact_path).startswith(str(artifacts_root) + "/") and artifact_path != artifacts_root:
+            raise ValueError(f"Путь артефакта выходит за пределы: {filename!r}")
+        return artifact_path
+
     def save_artifact(self, filename: str, content: str) -> Path:
         """Сохранить артефакт (план, схему и т.д.)."""
-        artifact_path = self.dir / self.artifacts_subdir / filename
+        artifact_path = self._safe_artifact_path(filename)
         artifact_path.write_text(content, encoding='utf-8')
         return artifact_path
 
     def read_artifact(self, filename: str) -> str | None:
         """Прочитать артефакт."""
-        artifact_path = self.dir / self.artifacts_subdir / filename
+        try:
+            artifact_path = self._safe_artifact_path(filename)
+        except ValueError:
+            return None
         if artifact_path.exists():
             return artifact_path.read_text(encoding='utf-8')
         return None

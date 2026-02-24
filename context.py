@@ -57,11 +57,21 @@ def build_system_prompt(agent_config: AgentConfig, round_num: int, total_agents:
     return header + "\n" + agent_config.system_prompt + RESPONSE_FORMAT_INSTRUCTION
 
 
+def _truncate_text(text: str, max_chars: int) -> str:
+    """Детерминированная обрезка текста с маркером."""
+    if max_chars <= 0 or len(text) <= max_chars:
+        return text
+    return text[:max_chars] + "\n\n[TRUNCATED]"
+
+
 def build_messages(
     session: Session,
     agent_name: str,
     round_num: int,
     review_peers: bool = True,
+    max_shared_messages: int = 0,
+    max_own_thinking_chars: int = 0,
+    max_peer_thinking_chars: int = 0,
 ) -> list[dict]:
     """Собирает список сообщений для LLM API.
 
@@ -83,7 +93,10 @@ def build_messages(
     # 2. Общий чат
     shared = session.read_shared()
     if len(shared) > 1:  # Первое сообщение — задача, уже добавлена
-        shared_text = _format_shared(shared[1:])  # Пропускаем задачу
+        relevant = shared[1:]  # Пропускаем задачу
+        if max_shared_messages > 0 and len(relevant) > max_shared_messages:
+            relevant = relevant[-max_shared_messages:]
+        shared_text = _format_shared(relevant)
         messages.append({
             "role": "user",
             "content": f"## Общий чат (выводы участников)\n\n{shared_text}"
@@ -93,6 +106,7 @@ def build_messages(
     own_context = session.read_agent_context(agent_name)
     if own_context:
         own_text = _format_agent_context(own_context)
+        own_text = _truncate_text(own_text, max_own_thinking_chars)
         messages.append({
             "role": "user",
             "content": f"## Твои предыдущие рассуждения\n\n{own_text}"
@@ -105,13 +119,13 @@ def build_messages(
                 continue
             peer_context = session.read_agent_context(peer)
             if peer_context:
-                # Берём только последнюю запись пира для экономии токенов
                 last = peer_context[-1]
+                peer_text = _truncate_text(last.content, max_peer_thinking_chars)
                 messages.append({
                     "role": "user",
                     "content": (
                         f"## Рассуждения {peer.upper()} (последний раунд)\n\n"
-                        f"{last.content}"
+                        f"{peer_text}"
                     )
                 })
 

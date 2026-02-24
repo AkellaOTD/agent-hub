@@ -137,7 +137,8 @@ def print_help():
   {CYAN}/status{RESET}        — показать текущее состояние сессии
   {CYAN}/read <agent>{RESET}  — показать рассуждения агента (gpt, claude, gemini)
   {CYAN}/artifacts{RESET}     — список артефактов
-  {CYAN}/artifact <n>{RESET}  — показать содержимое артефакта
+  {CYAN}/artifact <name>{RESET} — показать содержимое артефакта
+  {CYAN}/summary{RESET}        — краткая сводка выводов по раундам
   {CYAN}/help{RESET}          — эта справка
   {CYAN}текст{RESET}          — добавить комментарий/направление в общий чат
 """)

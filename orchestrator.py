@@ -104,6 +104,28 @@ def _detect_natural_questions(text: str) -> list[str]:
     return []
 
 
+def _compute_start_round(
+    shared: list[Message],
+    turn_order: list[str],
+) -> tuple[int, set[str]]:
+    """Определяет стартовый раунд и уже ответивших в нём агентов.
+
+    Returns:
+        (start_round, answered_agents_in_current_round)
+    """
+    conclusions = [m for m in shared if m.type == "conclusion"]
+    if not conclusions:
+        return 1, set()
+
+    last_round = max(m.round for m in conclusions)
+    agents_in_last_round = {m.agent for m in conclusions if m.round == last_round}
+
+    if agents_in_last_round >= set(turn_order):
+        return last_round + 1, set()
+
+    return last_round, agents_in_last_round
+
+
 def _save_error_artifact(session: Session, agent_name: str, round_num: int, error: ProviderError):
     """Сохраняет сырой stderr ошибки провайдера в артефакт сессии."""
     if error.raw_stderr:
@@ -134,7 +156,13 @@ def run_agent_turn(
 
         # Собираем контекст
         system_prompt = build_system_prompt(agent_config, round_num, config.turn_order)
-        messages = build_messages(session, agent_name, round_num, config.review_peers)
+        messages = build_messages(
+            session, agent_name, round_num,
+            review_peers=config.review_peers,
+            max_shared_messages=config.max_shared_messages,
+            max_own_thinking_chars=config.max_own_thinking_chars,
+            max_peer_thinking_chars=config.max_peer_thinking_chars,
+        )
 
         # Вызываем LLM с retry при transient-ошибках
         response = None
@@ -209,6 +237,17 @@ def run_agent_turn(
                     round=round_num,
                 ))
                 print_info("Ответ добавлен в общий чат")
+        elif questions and no_interactive:
+            combined = "\n".join(questions)
+            session.append_shared(Message(
+                id=session.next_id("system"),
+                timestamp=Session.now(),
+                agent=agent_name,
+                type="system",
+                content=f"[Вопрос без ответа (no-interactive)]: {combined}",
+                round=round_num,
+            ))
+            print_info(f"{agent_name.upper()} задал вопрос (no-interactive, записан в чат)")
 
         return True
 
@@ -294,6 +333,23 @@ def handle_human_input(session: Session, round_num: int, config: Config) -> str:
                 print_info("Артефактов пока нет")
             continue
 
+        if user_input == '/summary':
+            shared = session.read_shared()
+            conclusions = [m for m in shared if m.type == "conclusion"]
+            if not conclusions:
+                print_info("Нет выводов для сводки")
+            else:
+                rounds: dict[int, list[Message]] = {}
+                for msg in conclusions:
+                    rounds.setdefault(msg.round, []).append(msg)
+                for rn in sorted(rounds.keys()):
+                    print(f"\n--- Раунд {rn} ---")
+                    for msg in rounds[rn]:
+                        first_lines = msg.content.strip().split('\n')[:2]
+                        preview = '\n'.join(first_lines)
+                        print(f"  {msg.agent.upper()}: {preview}")
+            continue
+
         if user_input.startswith('/artifact '):
             name = user_input[10:].strip()
             content = session.read_artifact(name)
@@ -342,8 +398,11 @@ def finalize_session(session: Session, config: Config):
         for msg in rounds[round_num]:
             parts.append(f"### {msg.agent.upper()}\n\n{msg.content}\n")
 
-    # Артефакты
-    artifacts = session.list_artifacts()
+    # Артефакты (исключаем plan-final.md и error-логи)
+    artifacts = [
+        name for name in session.list_artifacts()
+        if name != "plan-final.md" and not name.startswith("error-")
+    ]
     if artifacts:
         parts.append("\n## Артефакты\n")
         for name in artifacts:
@@ -398,8 +457,7 @@ def main():
         print_info(f"Задача: {task[:100]}...")
         # Определяем текущий раунд
         shared = session.read_shared()
-        conclusions = [m for m in shared if m.type == "conclusion"]
-        start_round = (len(conclusions) // len(config.turn_order)) + 1
+        start_round, already_answered = _compute_start_round(shared, config.turn_order)
     else:
         # Получаем задачу
         task = args.task
@@ -419,7 +477,14 @@ def main():
             sys.exit(1)
 
         session_id = Session.generate_session_id(task)
-        session_dir = str(Path(config.sessions_dir) / session_id)
+        session_dir = Path(config.sessions_dir) / session_id
+        if session_dir.exists():
+            suffix = 2
+            while (Path(config.sessions_dir) / f"{session_id}-{suffix}").exists():
+                suffix += 1
+            session_id = f"{session_id}-{suffix}"
+            session_dir = Path(config.sessions_dir) / session_id
+        session_dir = str(session_dir)
 
         session = Session(session_dir, config.turn_order, config.artifacts_dir)
         session.create(task, args.config)
@@ -430,6 +495,7 @@ def main():
         print_info(f"Агенты: {', '.join(a.upper() for a in config.turn_order)}")
         print_info(f"Раундов: {config.max_rounds}")
         start_round = 1
+        already_answered = set()
 
     # Основной цикл
     for round_num in range(start_round, config.max_rounds + 1):
@@ -437,6 +503,9 @@ def main():
 
         # Ход каждого агента
         for agent_name in config.turn_order:
+            if round_num == start_round and agent_name in already_answered:
+                print_info(f"{agent_name.upper()} уже ответил в раунде {round_num}, пропускаю")
+                continue
             success = run_agent_turn(session, agent_name, config, round_num, args.no_interactive)
             if not success:
                 print_error(f"Ход {agent_name.upper()} провалился, пропускаю")

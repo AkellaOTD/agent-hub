@@ -22,6 +22,9 @@ class Config:
     review_peers: bool = True
     sessions_dir: str = "./sessions"
     artifacts_dir: str = "artifacts"
+    max_shared_messages: int = 0       # 0 = без лимита
+    max_own_thinking_chars: int = 0    # 0 = без лимита
+    max_peer_thinking_chars: int = 0   # 0 = без лимита
 
 
 VALID_PROVIDERS = ('claude_cli', 'gemini_cli', 'codex_cli')
@@ -66,4 +69,7 @@ def load_config(path: str) -> Config:
         review_peers=raw.get('review_peers', True),
         sessions_dir=raw.get('sessions_dir', './sessions'),
         artifacts_dir=raw.get('artifacts_dir', 'artifacts'),
+        max_shared_messages=raw.get('max_shared_messages', 0),
+        max_own_thinking_chars=raw.get('max_own_thinking_chars', 0),
+        max_peer_thinking_chars=raw.get('max_peer_thinking_chars', 0),
     )
