@@ -149,6 +149,19 @@ class Session:
             return task_file.read_text(encoding='utf-8')
         return ""
 
+    def save_dirs(self, project_dir: str, allowed_directories: list[str]):
+        """Сохранить рабочие директории в сессию."""
+        data = {"project_dir": project_dir, "allowed_directories": allowed_directories}
+        (self.dir / "dirs.json").write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')
+
+    def load_dirs(self) -> tuple[str, list[str]]:
+        """Загрузить рабочие директории из сессии."""
+        path = self.dir / "dirs.json"
+        if path.exists():
+            data = json.loads(path.read_text(encoding='utf-8'))
+            return data.get("project_dir", ""), data.get("allowed_directories", [])
+        return "", []
+
     def _next_id(self, agent: str) -> str:
         self._msg_counter += 1
         return f"msg-{self._msg_counter:03d}-{agent}"

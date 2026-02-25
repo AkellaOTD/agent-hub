@@ -48,6 +48,9 @@ class ClaudeCLIProvider(LLMProvider):
         cmd = ["claude", "-p"]
         if self.model:
             cmd.extend(["--model", self.model])
+        if self.allowed_directories:
+            for d in self.allowed_directories:
+                cmd.extend(["--add-dir", d])
 
         try:
             result = subprocess.run(

@@ -159,7 +159,10 @@ def run_agent_turn(
         )
 
         # Собираем контекст
-        system_prompt = build_system_prompt(agent_config, round_num, config.turn_order)
+        system_prompt = build_system_prompt(
+            agent_config, round_num, config.turn_order,
+            project_dir=project_dir, allowed_directories=allowed_directories,
+        )
         messages = build_messages(
             session, agent_name, round_num,
             review_peers=config.review_peers,
@@ -379,6 +382,9 @@ def handle_human_input(session: Session, round_num: int, config: Config, allowed
                 print_info(f"Дополнительная директория: {resolved}")
             elif allowed_directories is not None:
                 print_info(f"Директория уже добавлена: {resolved}")
+            # Сохраняем в сессию
+            if dir_ctx is not None:
+                session.save_dirs(dir_ctx.get("project_dir", ""), allowed_directories or [])
             continue
 
         # Неизвестная команда — предупреждение
@@ -455,43 +461,86 @@ def main():
     )
     parser.add_argument('--config', '-c', default='config.yaml', help='Путь к конфигу (default: config.yaml)')
     parser.add_argument('--task', '-t', help='Задача (или ввести интерактивно)')
-    parser.add_argument('--resume', '-r', help='Путь к существующей сессии для продолжения')
+    parser.add_argument('--name', '-n', help='Имя сессии (для новой или для resume вместо полного пути)')
+    parser.add_argument('--resume', '-r', help='Путь/имя существующей сессии для продолжения')
     parser.add_argument('--rounds', type=int, help='Количество раундов (переопределяет конфиг)')
     parser.add_argument('--no-interactive', action='store_true', help='Без интерактивного ввода')
     parser.add_argument('--project-dir', '-d', help='Директория проекта для анализа (cwd для агентов)')
 
     args = parser.parse_args()
 
-    # Загрузка конфига
+    # Загрузка конфига (предварительная — для sessions_dir)
     config_path = args.config
-    if args.resume:
-        resume_config = Path(args.resume) / "config.yaml"
-        if resume_config.exists():
-            config_path = str(resume_config)
-
     try:
         config = load_config(config_path)
     except Exception as e:
         print_error(f"Ошибка конфига: {e}")
         sys.exit(1)
 
+    # Резолв --resume: поддерживаем имя сессии вместо полного пути
+    resume_path = args.resume
+    if resume_path and not Path(resume_path).exists():
+        # Пробуем найти в sessions_dir
+        candidate = Path(config.sessions_dir) / resume_path
+        if candidate.exists():
+            resume_path = str(candidate)
+        else:
+            # Поиск по частичному совпадению
+            sessions_root = Path(config.sessions_dir)
+            if sessions_root.exists():
+                matches = [d for d in sessions_root.iterdir() if d.is_dir() and resume_path in d.name]
+                if len(matches) == 1:
+                    resume_path = str(matches[0])
+                elif len(matches) > 1:
+                    print_error(f"Несколько сессий подходят под '{resume_path}':")
+                    for m in sorted(matches):
+                        print(f"  - {m.name}")
+                    sys.exit(1)
+                else:
+                    print_error(f"Сессия не найдена: {resume_path}")
+                    sys.exit(1)
+
+    # Перезагрузка конфига из сессии (если resume)
+    if resume_path:
+        resume_config = Path(resume_path) / "config.yaml"
+        if resume_config.exists():
+            config_path = str(resume_config)
+            config = load_config(config_path)
+
     if args.rounds:
         config.max_rounds = args.rounds
 
     # Сессия
-    if args.resume:
-        session = Session.resume(args.resume)
+    if resume_path:
+        session = Session.resume(resume_path)
         task = session.get_task()
-        print_header(f"Продолжение сессии: {args.resume}")
+        print_header(f"Продолжение сессии: {resume_path}")
         print_info(f"Задача: {task[:100]}...")
         # Определяем текущий раунд
         shared = session.read_shared()
         start_round, already_answered = _compute_start_round(shared, config.turn_order)
     else:
+        print_header("Multi-Agent Chat Orchestrator")
+
+        # Имя сессии: из --name, интерактивно, или автогенерация
+        session_name = args.name
+        if not session_name and not args.no_interactive:
+            print(f"{CYAN}Имя сессии{RESET} (Enter=авто): ", end='', flush=True)
+            try:
+                session_name = input().strip()
+            except (EOFError, KeyboardInterrupt):
+                session_name = ""
+
+        # Проверка уникальности сразу
+        if session_name:
+            session_dir = Path(config.sessions_dir) / session_name
+            if session_dir.exists():
+                print_error(f"Сессия '{session_name}' уже существует. Выберите другое имя.")
+                sys.exit(1)
+
         # Получаем задачу
         task = args.task
         if not task:
-            print_header("Multi-Agent Chat Orchestrator")
             print("Введите задачу для обсуждения (Ctrl+D для завершения ввода):\n")
             lines = []
             try:
@@ -505,15 +554,23 @@ def main():
             print_error("Задача не указана")
             sys.exit(1)
 
-        session_id = Session.generate_session_id(task)
-        session_dir = Path(config.sessions_dir) / session_id
-        if session_dir.exists():
-            suffix = 2
-            while (Path(config.sessions_dir) / f"{session_id}-{suffix}").exists():
-                suffix += 1
-            session_id = f"{session_id}-{suffix}"
-            session_dir = Path(config.sessions_dir) / session_id
-        session_dir = str(session_dir)
+        if not session_name:
+            # Проверка уникальности
+            session_dir = Path(config.sessions_dir) / session_name
+            if session_dir.exists():
+                print_error(f"Сессия '{session_name}' уже существует. Выберите другое имя.")
+                sys.exit(1)
+        else:
+            # Автогенерация как раньше
+            session_name = Session.generate_session_id(task)
+            session_dir = Path(config.sessions_dir) / session_name
+            if session_dir.exists():
+                suffix = 2
+                while (Path(config.sessions_dir) / f"{session_name}-{suffix}").exists():
+                    suffix += 1
+                session_name = f"{session_name}-{suffix}"
+
+        session_dir = str(Path(config.sessions_dir) / session_name)
 
         session = Session(session_dir, config.turn_order, config.artifacts_dir)
         session.create(task, args.config)
@@ -528,9 +585,19 @@ def main():
 
     # Определяем рабочую директорию проекта
     project_dir = ""
+    allowed_directories: list[str] = []
+
+    # При resume — загрузить сохранённые директории
+    if resume_path:
+        saved_project_dir, saved_allowed = session.load_dirs()
+        if saved_project_dir:
+            project_dir = saved_project_dir
+        allowed_directories = saved_allowed
+
+    # CLI/конфиг перезаписывают сохранённое
     if args.project_dir:
         project_dir = str(Path(args.project_dir).resolve())
-    elif config.project_dir:
+    elif not project_dir and config.project_dir:
         project_dir = str(Path(config.project_dir).resolve())
 
     if project_dir:
@@ -538,13 +605,17 @@ def main():
             print_error(f"Директория проекта не найдена: {project_dir}")
             sys.exit(1)
         print_info(f"Рабочая директория агентов: {project_dir}")
+    if allowed_directories:
+        print_info(f"Дополнительные директории: {', '.join(allowed_directories)}")
 
-    allowed_directories: list[str] = []
     # Контейнер для project_dir, чтобы /allow-dir мог обновить его по ссылке
     dir_ctx = {"project_dir": project_dir}
+    # Сохраняем текущее состояние директорий в сессию
+    if project_dir or allowed_directories:
+        session.save_dirs(project_dir, allowed_directories)
 
     # При resume — сначала ход администратора
-    if args.resume and not args.no_interactive:
+    if resume_path and not args.no_interactive:
         # Если лимит раундов исчерпан — предложить добавить
         if start_round > config.max_rounds:
             print_info(f"Лимит раундов достигнут ({config.max_rounds}). Сколько раундов добавить? (Enter=0, /done=завершить)")

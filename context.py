@@ -34,7 +34,13 @@ RESPONSE_FORMAT_INSTRUCTION = """
 """
 
 
-def build_system_prompt(agent_config: AgentConfig, round_num: int, total_agents: list[str]) -> str:
+def build_system_prompt(
+    agent_config: AgentConfig,
+    round_num: int,
+    total_agents: list[str],
+    project_dir: str = "",
+    allowed_directories: list[str] | None = None,
+) -> str:
     """Собирает полный system prompt для агента."""
     peers = [a for a in total_agents if a != agent_config.name]
     peer_list = ", ".join(peers)
@@ -53,6 +59,16 @@ def build_system_prompt(agent_config: AgentConfig, round_num: int, total_agents:
             "ищи пробелы, противоречия, предлагай улучшения. "
             "Двигайся к консенсусу.\n"
         )
+
+    # Информация о доступных директориях
+    if project_dir or allowed_directories:
+        dirs_info = "\n=== РАБОЧИЕ ДИРЕКТОРИИ ===\n"
+        if project_dir:
+            dirs_info += f"Основная директория проекта: {project_dir}\n"
+        if allowed_directories:
+            dirs_info += f"Дополнительные директории: {', '.join(allowed_directories)}\n"
+        dirs_info += "Ты ИМЕЕШЬ доступ к этим директориям. Можешь читать и анализировать файлы в них.\n"
+        header += dirs_info
 
     return header + "\n" + agent_config.system_prompt + RESPONSE_FORMAT_INSTRUCTION
 
