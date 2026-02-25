@@ -13,7 +13,7 @@ from context import build_system_prompt, build_messages
 from providers import create_provider
 from providers.errors import ProviderError, QuotaExhaustedError, AuthError, TransientError
 from renderer import (
-    Spinner,
+    Spinner, CYAN, RESET,
     print_header, print_round_header,
     print_agent_conclusion, print_agent_thinking_summary,
     print_agent_question, print_question_prompt,
@@ -285,7 +285,7 @@ def run_agent_turn(
         return False
 
 
-def handle_human_input(session: Session, round_num: int, config: Config, allowed_directories: list[str] | None = None) -> str:
+def handle_human_input(session: Session, round_num: int, config: Config, allowed_directories: list[str] | None = None, dir_ctx: dict | None = None) -> str:
     """Обрабатывает ввод человека. Возвращает действие: 'continue', 'done', 'quit'."""
     while True:
         print_human_prompt()
@@ -370,12 +370,23 @@ def handle_human_input(session: Session, round_num: int, config: Config, allowed
             if not Path(resolved).is_dir():
                 print_error(f"Директория не найдена: {dir_path}")
                 continue
-            if allowed_directories is not None and resolved not in allowed_directories:
+            # Если project_dir не задан — первая директория станет рабочей (cwd)
+            if dir_ctx is not None and not dir_ctx.get("project_dir"):
+                dir_ctx["project_dir"] = resolved
+                print_info(f"Рабочая директория агентов: {resolved}")
+            elif allowed_directories is not None and resolved not in allowed_directories:
                 allowed_directories.append(resolved)
-                print_info(f"Директория добавлена: {resolved}")
+                print_info(f"Дополнительная директория: {resolved}")
             elif allowed_directories is not None:
                 print_info(f"Директория уже добавлена: {resolved}")
             continue
+
+        # Неизвестная команда — предупреждение
+        if user_input.startswith('/'):
+            known = ['/done', '/quit', '/exit', '/help', '/status', '/read ', '/artifacts', '/artifact ', '/summary', '/allow-dir ']
+            if not any(user_input == cmd or user_input.startswith(cmd) for cmd in known):
+                print_error(f"Неизвестная команда: {user_input.split()[0]}. Введите /help для списка команд")
+                continue
 
         # Обычный текст — комментарий в чат
         session.append_shared(Message(
@@ -529,6 +540,43 @@ def main():
         print_info(f"Рабочая директория агентов: {project_dir}")
 
     allowed_directories: list[str] = []
+    # Контейнер для project_dir, чтобы /allow-dir мог обновить его по ссылке
+    dir_ctx = {"project_dir": project_dir}
+
+    # При resume — сначала ход администратора
+    if args.resume and not args.no_interactive:
+        # Если лимит раундов исчерпан — предложить добавить
+        if start_round > config.max_rounds:
+            print_info(f"Лимит раундов достигнут ({config.max_rounds}). Сколько раундов добавить? (Enter=0, /done=завершить)")
+            print(f"{CYAN}> {RESET}", end='', flush=True)
+            try:
+                extra = input().strip()
+            except (EOFError, KeyboardInterrupt):
+                extra = ""
+            if extra == '/done':
+                finalize_session(session, config)
+                print_info(f"\nФайлы сессии: {session.dir}")
+                sys.exit(0)
+            elif extra == '/quit' or extra == '/exit':
+                print_info(f"\nФайлы сессии: {session.dir}")
+                sys.exit(0)
+            elif extra.isdigit() and int(extra) > 0:
+                config.max_rounds = start_round + int(extra) - 1
+                print_info(f"Продолжаем до раунда {config.max_rounds}")
+            else:
+                finalize_session(session, config)
+                print_info(f"\nФайлы сессии: {session.dir}")
+                sys.exit(0)
+
+        action = handle_human_input(session, start_round, config, allowed_directories, dir_ctx)
+        if action == 'done':
+            finalize_session(session, config)
+            print_info(f"\nФайлы сессии: {session.dir}")
+            sys.exit(0)
+        elif action == 'quit':
+            print_info("Сессия приостановлена. Используйте --resume для продолжения.")
+            print_info(f"\nФайлы сессии: {session.dir}")
+            sys.exit(0)
 
     # Основной цикл
     for round_num in range(start_round, config.max_rounds + 1):
@@ -541,14 +589,14 @@ def main():
                 continue
             success = run_agent_turn(
                 session, agent_name, config, round_num, args.no_interactive,
-                project_dir=project_dir, allowed_directories=allowed_directories,
+                project_dir=dir_ctx["project_dir"], allowed_directories=allowed_directories,
             )
             if not success:
                 print_error(f"Ход {agent_name.upper()} провалился, пропускаю")
 
         # Ввод человека (если не --no-interactive)
         if not args.no_interactive:
-            action = handle_human_input(session, round_num, config, allowed_directories)
+            action = handle_human_input(session, round_num, config, allowed_directories, dir_ctx)
             if action == 'done':
                 finalize_session(session, config)
                 break
