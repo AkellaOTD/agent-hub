@@ -139,6 +139,8 @@ def run_agent_turn(
     config: Config,
     round_num: int,
     no_interactive: bool = False,
+    project_dir: str = "",
+    allowed_directories: list[str] | None = None,
 ) -> bool:
     """Выполняет ход одного агента. Возвращает True при успехе."""
     agent_config = config.agents[agent_name]
@@ -152,6 +154,8 @@ def run_agent_turn(
         provider = create_provider(
             agent_config.provider,
             agent_config.model,
+            cwd=project_dir,
+            allowed_directories=allowed_directories,
         )
 
         # Собираем контекст
@@ -281,7 +285,7 @@ def run_agent_turn(
         return False
 
 
-def handle_human_input(session: Session, round_num: int, config: Config) -> str:
+def handle_human_input(session: Session, round_num: int, config: Config, allowed_directories: list[str] | None = None) -> str:
     """Обрабатывает ввод человека. Возвращает действие: 'continue', 'done', 'quit'."""
     while True:
         print_human_prompt()
@@ -360,6 +364,19 @@ def handle_human_input(session: Session, round_num: int, config: Config) -> str:
                 print_error(f"Артефакт '{name}' не найден")
             continue
 
+        if user_input.startswith('/allow-dir '):
+            dir_path = user_input[11:].strip()
+            resolved = str(Path(dir_path).resolve())
+            if not Path(resolved).is_dir():
+                print_error(f"Директория не найдена: {dir_path}")
+                continue
+            if allowed_directories is not None and resolved not in allowed_directories:
+                allowed_directories.append(resolved)
+                print_info(f"Директория добавлена: {resolved}")
+            elif allowed_directories is not None:
+                print_info(f"Директория уже добавлена: {resolved}")
+            continue
+
         # Обычный текст — комментарий в чат
         session.append_shared(Message(
             id=session.next_id("human"),
@@ -430,6 +447,7 @@ def main():
     parser.add_argument('--resume', '-r', help='Путь к существующей сессии для продолжения')
     parser.add_argument('--rounds', type=int, help='Количество раундов (переопределяет конфиг)')
     parser.add_argument('--no-interactive', action='store_true', help='Без интерактивного ввода')
+    parser.add_argument('--project-dir', '-d', help='Директория проекта для анализа (cwd для агентов)')
 
     args = parser.parse_args()
 
@@ -497,6 +515,21 @@ def main():
         start_round = 1
         already_answered = set()
 
+    # Определяем рабочую директорию проекта
+    project_dir = ""
+    if args.project_dir:
+        project_dir = str(Path(args.project_dir).resolve())
+    elif config.project_dir:
+        project_dir = str(Path(config.project_dir).resolve())
+
+    if project_dir:
+        if not Path(project_dir).is_dir():
+            print_error(f"Директория проекта не найдена: {project_dir}")
+            sys.exit(1)
+        print_info(f"Рабочая директория агентов: {project_dir}")
+
+    allowed_directories: list[str] = []
+
     # Основной цикл
     for round_num in range(start_round, config.max_rounds + 1):
         print_round_header(round_num)
@@ -506,13 +539,16 @@ def main():
             if round_num == start_round and agent_name in already_answered:
                 print_info(f"{agent_name.upper()} уже ответил в раунде {round_num}, пропускаю")
                 continue
-            success = run_agent_turn(session, agent_name, config, round_num, args.no_interactive)
+            success = run_agent_turn(
+                session, agent_name, config, round_num, args.no_interactive,
+                project_dir=project_dir, allowed_directories=allowed_directories,
+            )
             if not success:
                 print_error(f"Ход {agent_name.upper()} провалился, пропускаю")
 
         # Ввод человека (если не --no-interactive)
         if not args.no_interactive:
-            action = handle_human_input(session, round_num, config)
+            action = handle_human_input(session, round_num, config, allowed_directories)
             if action == 'done':
                 finalize_session(session, config)
                 break

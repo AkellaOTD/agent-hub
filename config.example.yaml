@@ -35,3 +35,7 @@ max_rounds: 10
 review_peers: true
 sessions_dir: ./sessions
 artifacts_dir: artifacts
+
+# Рабочая директория проекта (cwd для агентов)
+# Если не указано — агенты работают из текущей директории
+# project_dir: /var/www/myproject

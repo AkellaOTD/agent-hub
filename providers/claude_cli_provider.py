@@ -57,6 +57,7 @@ class ClaudeCLIProvider(LLMProvider):
                 text=True,
                 timeout=600,
                 env=env,
+                cwd=self.cwd,
             )
         except subprocess.TimeoutExpired:
             raise TransientError("claude CLI: таймаут выполнения (600с)", raw_stderr="")

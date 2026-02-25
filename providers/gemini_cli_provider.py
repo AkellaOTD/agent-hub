@@ -43,6 +43,9 @@ class GeminiCLIProvider(LLMProvider):
         cmd = ["gemini", "-p", "Ответь на запрос из stdin"]
         if self.model:
             cmd.extend(["--model", self.model])
+        if self.allowed_directories:
+            for d in self.allowed_directories[:5]:
+                cmd.extend(["--include-directories", d])
 
         try:
             result = subprocess.run(
@@ -51,6 +54,7 @@ class GeminiCLIProvider(LLMProvider):
                 capture_output=True,
                 text=True,
                 timeout=600,
+                cwd=self.cwd,
             )
         except subprocess.TimeoutExpired:
             raise TransientError("gemini CLI: таймаут выполнения (600с)", raw_stderr="")

@@ -52,6 +52,7 @@ class CodexCLIProvider(LLMProvider):
                 capture_output=True,
                 text=True,
                 timeout=600,
+                cwd=self.cwd,
             )
         except subprocess.TimeoutExpired:
             raise TransientError("codex CLI: таймаут выполнения (600с)", raw_stderr="")

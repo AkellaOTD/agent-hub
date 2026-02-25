@@ -139,6 +139,7 @@ def print_help():
   {CYAN}/artifacts{RESET}     — список артефактов
   {CYAN}/artifact <name>{RESET} — показать содержимое артефакта
   {CYAN}/summary{RESET}        — краткая сводка выводов по раундам
+  {CYAN}/allow-dir <path>{RESET} — разрешить агентам доступ к дополнительной директории
   {CYAN}/help{RESET}          — эта справка
   {CYAN}текст{RESET}          — добавить комментарий/направление в общий чат
 """)

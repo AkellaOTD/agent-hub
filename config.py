@@ -25,6 +25,7 @@ class Config:
     max_shared_messages: int = 0       # 0 = без лимита
     max_own_thinking_chars: int = 0    # 0 = без лимита
     max_peer_thinking_chars: int = 0   # 0 = без лимита
+    project_dir: str = ""              # рабочая директория проекта (cwd для агентов)
 
 
 VALID_PROVIDERS = ('claude_cli', 'gemini_cli', 'codex_cli')
@@ -72,4 +73,5 @@ def load_config(path: str) -> Config:
         max_shared_messages=raw.get('max_shared_messages', 0),
         max_own_thinking_chars=raw.get('max_own_thinking_chars', 0),
         max_peer_thinking_chars=raw.get('max_peer_thinking_chars', 0),
+        project_dir=raw.get('project_dir', ''),
     )

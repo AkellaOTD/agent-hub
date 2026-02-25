@@ -180,6 +180,20 @@ python3 orchestrator.py --resume sessions/2026-02-23-auth-planning/
 python3 orchestrator.py --config my-config.yaml --task "..."
 ```
 
+### Анализ проекта в другой директории
+
+```bash
+python3 orchestrator.py --project-dir /var/www/anvalt --task "Проанализировать архитектуру проекта"
+```
+
+Или через конфиг:
+
+```yaml
+project_dir: /var/www/anvalt
+```
+
+В ходе сессии можно добавить дополнительные директории командой `/allow-dir /var/www/other`.
+
 ### Автоматический режим (без ввода человека)
 
 ```bash
@@ -195,6 +209,7 @@ python3 orchestrator.py --task "..." --rounds 3 --no-interactive
 | `--resume`, `-r` | Путь к сессии для продолжения |
 | `--rounds` | Количество раундов (переопределяет конфиг) |
 | `--no-interactive` | Без ввода человека между раундами |
+| `--project-dir`, `-d` | Директория проекта для анализа (cwd для агентов) |
 
 ## Команды в интерактивном режиме
 
@@ -209,6 +224,7 @@ python3 orchestrator.py --task "..." --rounds 3 --no-interactive
 | `/artifacts` | Список созданных артефактов |
 | `/artifact <name>` | Показать содержимое артефакта |
 | `/summary` | Краткая сводка выводов по раундам |
+| `/allow-dir <path>` | Разрешить агентам доступ к дополнительной директории |
 | `/help` | Справка по командам |
 | `/quit` | Приостановить сессию (можно продолжить через `--resume`) |
 | любой текст | Добавить комментарий/направление в общий чат |

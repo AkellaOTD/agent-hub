@@ -11,9 +11,14 @@ PROVIDERS = {
 }
 
 
-def create_provider(provider_name: str, model: str) -> LLMProvider:
+def create_provider(
+    provider_name: str,
+    model: str,
+    cwd: str = "",
+    allowed_directories: list[str] | None = None,
+) -> LLMProvider:
     """Фабрика провайдеров."""
     if provider_name not in PROVIDERS:
         available = ', '.join(sorted(PROVIDERS.keys()))
         raise ValueError(f"Неизвестный провайдер: {provider_name}. Доступные: {available}")
-    return PROVIDERS[provider_name](model=model)
+    return PROVIDERS[provider_name](model=model, cwd=cwd, allowed_directories=allowed_directories)
